@@ -161,10 +161,13 @@ jsonParserForDef etd =
 The 'omitNothingFields' option is currently not implemented!
 -}
 jsonSerForType :: EType -> String
-jsonSerForType = jsonSerForType' False
+jsonSerForType = jsonSerForType' [1..]
 
-jsonSerForType' :: Bool -> EType -> String
-jsonSerForType' omitnull ty =
+jsonSerForType' :: [Int] -> EType -> String
+jsonSerForType' = jsonSerForType'' False
+
+jsonSerForType'' :: Bool -> [Int] -> EType -> String
+jsonSerForType'' omitnull ns ty =
     case ty of
       ETyVar (ETVar v) -> "localEncoder_" ++ v
       ETyCon (ETCon "Int") -> "Json.Encode.int"
@@ -172,28 +175,29 @@ jsonSerForType' omitnull ty =
       ETyCon (ETCon "String") -> "Json.Encode.string"
       ETyCon (ETCon "Bool") -> "Json.Encode.bool"
       ETyCon (ETCon c) -> "jsonEnc" ++ c
-      ETyApp (ETyCon (ETCon "List")) t' -> "(Json.Encode.list " ++ jsonSerForType t' ++ ")"
+      ETyApp (ETyCon (ETCon "List")) t' -> "(Json.Encode.list " ++ jsonSerForType' ns t' ++ ")"
       ETyApp (ETyCon (ETCon "Maybe")) t' -> if omitnull
-                                                then jsonSerForType t'
-                                                else "(maybeEncode (" ++ jsonSerForType t' ++ "))"
-      ETyApp (ETyCon (ETCon "Set")) t' -> "(encodeSet " ++ jsonSerForType t' ++ ")"
-      ETyApp (ETyApp (ETyCon (ETCon "Dict")) (ETyCon (ETCon "String"))) value -> "(Json.Encode.dict identity (" ++ jsonSerForType value ++ "))"
-      ETyApp (ETyApp (ETyCon (ETCon "Dict")) key) value -> "(encodeMap (" ++ jsonSerForType key ++ ") (" ++ jsonSerForType value ++ "))"
+                                                then jsonSerForType' ns t'
+                                                else "(maybeEncode (" ++ jsonSerForType' ns t' ++ "))"
+      ETyApp (ETyCon (ETCon "Set")) t' -> "(encodeSet " ++ jsonSerForType' ns t' ++ ")"
+      ETyApp (ETyApp (ETyCon (ETCon "Dict")) (ETyCon (ETCon "String"))) value -> "(Json.Encode.dict identity (" ++ jsonSerForType' ns value ++ "))"
+      ETyApp (ETyApp (ETyCon (ETCon "Dict")) key) value -> "(encodeMap (" ++ jsonSerForType' ns key ++ ") (" ++ jsonSerForType' ns value ++ "))"
       _ ->
           case unpackTupleType ty of
             [] -> error $ "This should never happen. Failed to unpackTupleType: " ++ show ty
             [x] ->
                 case unpackToplevelConstr x of
                   (y : ys) ->
-                      "(" ++ jsonSerForType y ++ " "
-                      ++ unwords (map (\t' -> "(" ++ jsonSerForType t' ++ ")") ys)
+                      "(" ++ jsonSerForType' ns y ++ " "
+                      ++ unwords (map (\t' -> "(" ++ jsonSerForType' ns t' ++ ")") ys)
                       ++ ")"
                   _ -> error $ "Do suitable json serialiser found for " ++ show ty
             xs ->
-                let tupleArgsV = zip xs ([1..] :: [Int])
+                let (ns', rest) = splitAt (length xs) ns
+                    tupleArgsV = zip xs ns'
                     tupleArgs =
                         intercalate "," $ map (\(_, v) -> "t" ++ show v) tupleArgsV
-                in "(\\(" ++ tupleArgs ++ ") -> Json.Encode.list identity [" ++  intercalate "," (map (\(t', idx) -> "(" ++ jsonSerForType t' ++ ") t" ++ show idx) tupleArgsV) ++ "])"
+                in "(\\(" ++ tupleArgs ++ ") -> Json.Encode.list identity [" ++  intercalate "," (map (\(t', idx) -> "(" ++ jsonSerForType' rest t' ++ ") t" ++ show idx) tupleArgsV) ++ "])"
 
 
 -- | Compile a JSON serializer for an Elm type definition
